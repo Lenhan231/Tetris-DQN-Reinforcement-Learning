@@ -215,7 +215,7 @@ class TetrisGame:
         1. Tìm hàng nào đầy (không có 0)
         2. Xóa ALL full lines cùng lúc (tránh index shift)
         3. Insert N empty rows ở trên một lần (gravity)
-        4. Tính điểm: 1 line = 101, 4 lines = 401, etc
+        4. Tính điểm theo Tetris standard scoring:
 
         Return:
             (num_lines_cleared, points)
@@ -237,10 +237,10 @@ class TetrisGame:
             self.board.insert(0, [0] * self.width)
 
         # Tính điểm (Tetris standard scoring)
-        # 1 line = 101, 2 lines = 201, 3 lines = 301, 4 lines = 401
+        
         points = 0
         if num_lines > 0:
-            points = 1 + (num_lines ** 2) * self.width
+            points = 1 + (num_lines ** 2) * 10  # 1 line=10, 2 lines=40, 3 lines=90, 4 lines=160
 
         return num_lines, points
 
@@ -341,14 +341,15 @@ class TetrisGame:
 
         # Reward shaping: encourage good board states
         # (Agent learns WHAT makes good states, not just from rare line clears)
-        state_features = self._get_state_features()
-        lines, holes, bumpiness, height = state_features
-
-        # Penalize bad states (negative reward = discourage)
-        # Normalize by typical max values
-        reward -= 0.5 * (height / 20.0)          # Tall = bad (risk of game over)
-        reward -= 1.0 * (holes / 50.0)           # Holes = bad (blocks future)
-        reward -= 0.7 * (bumpiness / 100.0)      # Bumpy = bad (inefficient)
+        if lines_cleared == 0:  # Nếu không clear line nào, đánh giá state hiện tại
+            state_features = self._get_state_features()
+            lines, holes, bumpiness, height = state_features
+            # height is total height of all columns (tall = bad)
+            # Penalize bad states (negative reward = discourage)
+            # Normalize by typical max values
+            reward -= 0.5 * (height)          # Tall = bad (risk of game over)
+            reward -= 0.36 * (holes)           # Holes = bad (blocks future)
+            reward -= 0.2 * (bumpiness)      # Bumpy = bad (inefficient)
 
         # 6. Spawn piece mới
         self._spawn_new_piece()

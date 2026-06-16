@@ -116,6 +116,7 @@ class DQNAgent:
 
         # Replay buffer: lưu (state, reward, next_state, done)
         self.memory = deque(maxlen=args.memory_size)
+        self.best_score = 0.0
 
         # Tracking progress
         self.episode = 0
@@ -345,20 +346,32 @@ class DQNAgent:
                     "model/epsilon": self._get_epsilon(),
                 })
 
-            # Update target network (mỗi 100 episodes)
-            if (ep + 1) % 100 == 0:
-                self.target_net.load_state_dict(self.q_net.state_dict())
-                print(f"  → Updated target network")
+            
+            if self._get_epsilon() != 0.001 and (ep + 1) % 100 == 0:
+                # Save model
+                print(f"Saving model at episode {ep + 1}...")
+                self.target_net.load_state_dict(self.q_net.state_dict()) 
 
-            # Save model (mỗi save_interval episodes)
-            if (ep + 1) % self.args.save_interval == 0:
-                path = os.path.join(self.args.save_path, f"tetris_{ep + 1}.pth")
-                torch.save(self.q_net.state_dict(), path)
-                print(f"  → Saved: {path}")
+           
+           # Update target network with BEST model when new best is found
+            if self._get_epsilon() == 0.001 and score > self.best_score:
+                print(f"New best score: {score:.0f} (previous: {self.best_score:.0f}) - saving model!")
+                self.best_score = score
 
+                best_path = os.path.join(
+                    self.args.save_path,
+                    "tetris_best.pth"
+                )
+
+                torch.save(
+                    self.q_net.state_dict(),
+                    best_path
+                )
+
+                
         # Save final model
         final_path = os.path.join(self.args.save_path, "tetris_final.pth")
-        torch.save(self.q_net.state_dict(), final_path)
+        torch.save(self.target_net.state_dict(), final_path)
         print(f"\n✅ Training complete!")
         print(f"Final model: {final_path}")
         return self.q_net

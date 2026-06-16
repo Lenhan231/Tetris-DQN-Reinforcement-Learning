@@ -133,7 +133,7 @@ class DeepQNetwork(nn.Module):
     >>> model = DeepQNetwork(input_size=8, hidden1_size=128)
     """
 
-    def __init__(self, input_size=4, hidden1_size=64, hidden2_size=32, output_size=1):
+    def __init__(self, input_size=4, hidden1_size=64, hidden2_size=64, output_size=1):
         """Initialize Dynamic Deep Q-Network
 
         Args:
