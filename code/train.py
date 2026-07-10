@@ -167,9 +167,6 @@ class DQNAgent:
             if self.render_enabled:
                 self.env.render()
 
-            # Lưu experience vào buffer — LUÔN lưu, kể cả reward âm.
-            # (Lọc reward >= 0 sẽ vứt hết transition game-over/done=True,
-            # agent không bao giờ học được rằng thua là xấu)
             self.memory.append((state, reward, next_state, done))
 
             # Update state cho vòng lặp tiếp theo
@@ -204,9 +201,7 @@ class DQNAgent:
 
             score, pieces, lines, total_reward = self.play_episode()
 
-            # - Chỉ ghi file khi score >= min_save_score (bỏ qua best rác đầu run)
-            # - File kèm điểm trong tên: tetris_best_15025.pth
-            # - Có bản mạnh hơn thì XÓA file best cũ của run này
+            # save model nếu score tốt hơn best_score trước đó
             if score > self.best_score:
                 self.best_score = score
                 if score >= self.args.min_save_score:
@@ -226,21 +221,23 @@ class DQNAgent:
             # không làm training bắt đầu trễ cả trăm episodes).
             if len(self.memory) > min(3000, self.args.memory_size / 10):
                 loss = self.train_step()
+                self.epoch_losses.append(loss)
                 self.total_loss += loss
                 self.loss_count += 1
+            else:
+                self.epoch_losses.append(0.0)
 
             # Update target network after every N episodes (default: 100)
             if (ep + 1) % self.args.target_update == 0:
                 self.target_net.load_state_dict(self.q_net.state_dict())
 
+    # ----------- Just log notthing more ----------------    
             # Collect metrics
             self.epoch_scores.append(score)
             self.epoch_pieces.append(pieces)
             self.epoch_lines.append(lines)
             self.epoch_rewards.append(total_reward)
-            self.epoch_losses.append(self.total_loss / self.loss_count if self.loss_count > 0 else 0)
 
-            # Just log notthing more    
             # Log progress (mỗi 10 episodes)
             if (ep + 1) % 10 == 0:
                 avg_loss = (self.total_loss / self.loss_count) if self.loss_count > 0 else 0
@@ -328,8 +325,8 @@ def get_args():
                         help="Phạt mỗi hole MỚI tạo ra (default: -1.0)")
     parser.add_argument("--shape_bump", type=float, default=-1.0,
                         help="Phạt mỗi đơn vị bumpiness TĂNG thêm (default: -1.0)")
-    parser.add_argument("--shape_height", type=float, default=-0.1,
-                        help="Phạt mỗi đơn vị height TĂNG thêm (default: -0.1)")
+    parser.add_argument("--shape_height", type=float, default=-1.0,
+                        help="Phạt mỗi đơn vị height TĂNG thêm (default: -1.0)")
 
     # Visualization & Tracking
     parser.add_argument("--render", action="store_true",

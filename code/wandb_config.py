@@ -7,12 +7,10 @@ WANDB_AVAILABLE = True
 
 class WandBTracker:
     """Handles WandB initialization and metric logging."""
-    
     def __init__(self, config, enabled=True):
         self.enabled = enabled and WANDB_AVAILABLE
         self.config = config
         
-        # Initialize if enabled
         if self.enabled:
             wandb.init(
                 project="tetris-dqn",

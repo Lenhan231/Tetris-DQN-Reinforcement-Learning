@@ -102,9 +102,6 @@ class TetrisGame:
         for col in range(self.width):
             height = 0
 
-            # Scan từ TRÊN xuống: ô có khối đầu tiên = đỉnh cột.
-            # (Scan từ dưới lên sẽ lấy khối THẤP nhất — cột nào chạm đáy
-            # luôn ra height=1, làm total_height và bumpiness sai hết)
             for row in range(self.height):
                 if self.board[row][col] != 0:
                     height = self.height - row
@@ -131,12 +128,9 @@ class TetrisGame:
         Action:
         - action[0] (x_pos): vị trí ngang nơi đặt piece (0-10)
         - action[1] (num_rotations): số lần xoay piece (0-3)
-
-        on_drop_step: callback gọi ở MỖI hàng piece rơi xuống (dùng để render
-        animation soft drop khi test). None = rơi tức thì (train nhanh).
-
+        
         Workflow:
-        1. Xoay piece num_rotations lần
+        1. Xoay piece num_rotations 
         2. Đặt piece tại x_pos
         3. Drop piece xuống (tìm vị trí cuối cùng)
         4. Lock piece lên board
@@ -182,9 +176,6 @@ class TetrisGame:
         self.score += points
         self.cleared_lines += lines_cleared
 
-        # Reward: +1 survival bonus mỗi khối đặt được + thưởng lớn khi xóa hàng
-        # (+1 dày đặc dạy agent "sống lâu = tốt"; chỉ thưởng khi xóa hàng thì
-        # tín hiệu quá thưa, agent random gần như không bao giờ nhận reward)
         reward = 1 + (lines_cleared ** 2) * self.width
 
         # 6. Spawn piece mới
