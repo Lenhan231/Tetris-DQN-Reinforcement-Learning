@@ -1,0 +1,1 @@
+{"epoch":300,"game/avg_lines_100":0.02,"_timestamp":1.7836924348220859e+09,"_step":2,"game/best_lines_100":1,"game/avg_pieces_100":17.84,"model/epsilon":0.8506495,"game/avg_rewards_100":234.37,"game/avg_score_100":0.22,"_wandb":{"runtime":11},"_runtime":11,"model/loss":2161.1131420898437}

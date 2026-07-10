@@ -25,9 +25,11 @@ class DQNAgent:
         # Rendering flag
         self.render_enabled = getattr(args, 'render', False)
 
-        # Neural Networks
+        # Init 2 Neural Networks
         self.q_net = DeepQNetwork().to(self.device) 
-        self.target_net = DeepQNetwork().to(self.device)  
+        self.target_net = DeepQNetwork().to(self.device)
+
+        # Load q_net weight to target_net
         self.target_net.load_state_dict(self.q_net.state_dict())
 
         # Optimizer & Loss function
@@ -39,62 +41,58 @@ class DQNAgent:
         self.best_score = 0.0
         self.last_best_path = None  
 
-        # Tracking progress
-        self.episode = 0
-        self.total_loss = 0.0
-        self.loss_count = 0
-
         # WandB tracking
         self.use_wandb = getattr(args, 'wandb', False) and WANDB_AVAILABLE
         if self.use_wandb:
             self.wandb_tracker = WandBTracker(args)
         
-        # Metrics storage for logging
+        # Tracking progress and Metrics storage for logging
+        self.episode = 0
         self.epoch_scores = []
         self.epoch_pieces = []
         self.epoch_lines = []
         self.epoch_rewards = []
         self.epoch_losses = []
 
-    def _get_epsilon(self):
+    # ε = ε_final + (ε_initial - ε_final) * max(1 - episode / decay_epochs, 0)
+    def _get_epsilon(self) -> float:
         return self.args.final_eps + max(
             self.args.decay_epochs - self.episode, 0
         ) * (self.args.initial_eps - self.args.final_eps) / self.args.decay_epochs
 
-    def _get_best_action(self, next_states):
-        """Dùng Q-network để chọn action tốt nhất
+    def _get_best_action(self, next_states) -> tuple:
+        """Return the action with the highest predicted Q-value.
 
-        Input:
-            next_states: Dict {(x, rotation): (lines, holes, bumpiness, height)}
+        Args:
+            next_states: Mapping from action (x, rotation) to state features.
 
-        Return:
-            action: (x_pos, num_rotations) có Q-value cao nhất
+        Returns:
+            Tuple[int, int]: Selected action as (x_position, rotations).
         """
         self.q_net.eval()
+
         with torch.no_grad():
             if not next_states:
                 return (0, 0)
 
-            # Convert state features → tensors
+            # Batch all candidate next states for a single forward pass.
             actions = list(next_states.keys())
             features = [list(next_states[a]) for a in actions]
             states_tensor = torch.FloatTensor(features).to(self.device)
 
-            # Predict Q-values cho tất cả actions
+            # Select the action with the maximum predicted Q-value.
             q_values = self.q_net(states_tensor).squeeze()
             best_idx = torch.argmax(q_values).item()
+
             return actions[best_idx]
 
-    def select_action(self):
-        eps = self._get_epsilon()
-        next_states = self.env.get_next_states()
-
-        if random() < eps:
-            return choice(list(next_states.keys())) if next_states else (0, 0)
+    def select_action(self) -> tuple:
+        if random() < self._get_epsilon():
+            return choice(list(self.env.get_next_states().keys())) if self.env.get_next_states() else (0, 0)
         else:
-            return self._get_best_action(next_states)
+            return self._get_best_action(self.env.get_next_states())
 
-    def train_step(self):
+    def train_step(self) -> float:
         """Một step training: sample batch → tính loss → update Q_net
 
         DQN training loop:
@@ -140,49 +138,61 @@ class DQNAgent:
 
         return loss.item()
 
-    def play_episode(self):
-        """Chơi 1 episode đầy đủ
+    def play_episode(self) -> tuple:
+        """Play a single episode and collect experience.
 
-        Return:
-            score, pieces, lines, total_reward
+        Returns:
+            Tuple[score, pieces, lines, total_reward]
         """
         self.env.reset()
         state = self.env._get_state_features()
         total_reward = 0.0
 
-        # catastrophic forgetting handlling
+        # End the episode early to limit extremely long games.
         while not self.env.game_over:
-            if self.args.max_episode_pieces > 0 and self.env.tetrominoes >= self.args.max_episode_pieces:
+            if self.env.tetrominoes >= self.args.max_episode_pieces:
                 break
-
-            action = self.select_action()
-            reward, done, next_state = self.env.step(action)
-            
-            # the differ of next_state to state then multily by shaping factors
-            reward -= self.args.shape_holes * (next_state[1] - state[1])
-            reward -= self.args.shape_bump * (next_state[2] - state[2])
-            reward -= self.args.shape_height * (next_state[3] - state[3])
-            total_reward += reward
 
             if self.render_enabled:
                 self.env.render()
+                
+            action = self.select_action()
+            reward, done, next_state = self.env.step(action)
+
+            # Reward shaping: penalize increases in board holes, bumpiness, and height.
+            reward -= self.args.shape_holes * (next_state[1] - state[1])
+            reward -= self.args.shape_bump * (next_state[2] - state[2])
+            reward -= self.args.shape_height * (next_state[3] - state[3])
+
+            total_reward += reward
 
             self.memory.append((state, reward, next_state, done))
 
-            # Update state cho vòng lặp tiếp theo
             state = next_state
 
-        # LƯU Ý: play_episode chỉ CHƠI, không train. Gradient update nằm ở
-        # train() và chạy SAU khi save best — để model được lưu đúng là bộ
-        # trọng số đã chơi ván điểm cao, không phải bản sau 1 bước học.
-        return self.env.score, self.env.tetrominoes, self.env.cleared_lines, total_reward
+        # Only collect gameplay here. Network updates are performed separately
+        # during training so the saved "best" checkpoint matches the weights
+        # that actually achieved the best score.
+        return (
+            self.env.score,
+            self.env.tetrominoes,
+            self.env.cleared_lines,
+            total_reward,
+        )
 
     def train(self):
+        """Main training loop: play episodes, train, log metrics.
+        Flow:
+        1. Play episode
+        2. Save best model if score > best_score
+        3. Train if enough experience
+        """
         os.makedirs(self.args.save_path, exist_ok=True)
 
         for ep in range(self.args.num_epochs):
             self.episode = ep
 
+            # Play one episode
             score, pieces, lines, total_reward = self.play_episode()
 
             # Save highest
@@ -207,6 +217,7 @@ class DQNAgent:
                 self.epoch_losses.append(loss)
             else:
                 self.epoch_losses.append(0.0)
+
             # metrics collection for logging
             self.epoch_scores.append(score)
             self.epoch_pieces.append(pieces)
